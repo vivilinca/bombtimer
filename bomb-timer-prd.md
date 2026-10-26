@@ -4,6 +4,8 @@
 **Date:** 13 September 2026
 **Owner:** Rose
 **Status:** Live prototype, single-file web app
+**Repo:** https://github.com/vivilinca/bombtimer
+**Live:** https://vivilinca.github.io/bombtimer/
 
 ---
 
@@ -118,3 +120,14 @@ The product exists to make time limits (homework, screen time, tidy-up, reading)
 - Let the child draw the bomb's path before Start.
 - Optional "warning" chime at the halfway mark.
 - Save preferred durations across sessions (needs local storage — not available in the current hosted preview, fine as a downloaded file).
+
+## 10. Hosting and deployment
+
+- **Repository:** https://github.com/vivilinca/bombtimer (public, branch `main`). First pushed 26 October 2026.
+- **Live URL:** https://vivilinca.github.io/bombtimer/ — served by GitHub Pages from the root of `main`.
+- **Files in the repo:**
+  - `bomb-timer.html` — the app.
+  - `index.html` — redirects the site root to `bomb-timer.html`.
+  - `README.md` — short description and play link.
+  - `bomb-timer-prd.md` — this document.
+- **Updating:** commit and push to `main`; GitHub Pages redeploys automatically within a minute or two. No build step.
