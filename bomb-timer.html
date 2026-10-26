@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Bomb Timer</title>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --pink:#F48FB1; --pink-dk:#D95A8A; --pink-lt:#FDE1EC; --ink:#2B2035;
+    --yellow:#FFE14A; --orange:#FF8A3D; --cream:#FFF6F1; --screen:#2B2035;
+  }
+  *{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+  html,body{margin:0;height:100%;overflow:hidden;background:var(--cream);font-family:Fredoka,system-ui,sans-serif;color:var(--ink);user-select:none}
+  body{background-image:radial-gradient(var(--pink-lt) 1.6px,transparent 1.7px);background-size:26px 26px}
+  canvas{position:fixed;inset:0;width:100%;height:100%;z-index:2;pointer-events:none}
+
+  /* ---------- the timer clock ---------- */
+  #timer{
+    position:fixed;z-index:1;left:50%;top:50%;transform:translate(-50%,-50%);
+    display:none;flex-direction:column;align-items:center;
+    filter:drop-shadow(0 8px 0 rgba(43,32,53,.12));
+  }
+  #timer.on{display:flex}
+  .bells{display:flex;gap:70px;margin-bottom:-14px}
+  .bell{width:44px;height:30px;background:var(--pink);border:4px solid var(--ink);border-radius:22px 22px 6px 6px;position:relative}
+  .bell::after{content:"";position:absolute;top:-16px;left:50%;width:10px;height:14px;margin-left:-5px;background:var(--pink-dk);border:4px solid var(--ink);border-radius:6px;border-bottom:0}
+  .body{
+    background:var(--pink);border:5px solid var(--ink);border-radius:34px;
+    padding:18px 22px 14px;display:flex;flex-direction:column;align-items:center;gap:8px;
+  }
+  .screen{
+    background:var(--screen);border:4px solid var(--ink);border-radius:18px;
+    padding:6px 22px;font-size:clamp(56px,11vw,96px);font-weight:700;line-height:1;
+    color:var(--pink);letter-spacing:.04em;font-variant-numeric:tabular-nums;
+    box-shadow:inset 0 0 0 5px var(--pink-lt);min-width:4.1ch;text-align:center
+  }
+  .heartrow{color:var(--ink);font-size:22px;letter-spacing:6px}
+  .feet{display:flex;gap:90px;margin-top:-6px}
+  .foot{width:30px;height:16px;background:var(--pink-dk);border:4px solid var(--ink);border-top:0;border-radius:0 0 12px 12px}
+  #timer.hurry{animation:jitter .35s infinite}
+  #timer.panic{animation:jitter .12s infinite}
+  #timer.panic .screen{color:var(--yellow)}
+  #timer.dead .screen{color:#7a5f70;text-decoration:line-through}
+  #timer.dead{transform:translate(-50%,-50%) rotate(-7deg)}
+  @keyframes jitter{0%{transform:translate(-50%,-50%) rotate(-2deg)}50%{transform:translate(-49%,-51%) rotate(2deg)}100%{transform:translate(-50%,-50%) rotate(-2deg)}}
+
+  /* ---------- panels ---------- */
+  .panel{
+    position:fixed;z-index:5;left:50%;top:50%;transform:translate(-50%,-50%);
+    background:#fff;border:5px solid var(--ink);border-radius:36px;padding:28px 30px;
+    width:min(92vw,440px);text-align:center;box-shadow:0 10px 0 var(--pink-dk);display:none
+  }
+  .panel.on{display:block}
+  h1{margin:0 0 4px;font-size:40px;font-weight:700;letter-spacing:.01em}
+  .sub{margin:0 0 20px;font-size:19px;color:#6d5a68}
+  .steppers{display:flex;justify-content:center;align-items:center;gap:8px;margin-bottom:18px}
+  .colon{font-size:64px;font-weight:700;line-height:1;padding-bottom:26px}
+  .step{display:flex;flex-direction:column;align-items:center;gap:4px}
+  .step small{font-size:15px;color:#6d5a68}
+  .val{background:var(--screen);color:var(--pink);border:4px solid var(--ink);border-radius:16px;font-size:60px;font-weight:700;line-height:1;padding:6px 14px;min-width:2.4ch;font-variant-numeric:tabular-nums}
+  button{font-family:inherit;font-weight:700;cursor:pointer;border:4px solid var(--ink);color:var(--ink);background:var(--pink-lt);border-radius:999px;transition:transform .08s}
+  button:active{transform:translateY(3px)}
+  button:focus-visible{outline:4px solid var(--yellow);outline-offset:2px}
+  .arrow{width:56px;height:38px;font-size:18px;background:var(--pink);box-shadow:0 4px 0 var(--pink-dk)}
+  .arrow:active{box-shadow:none}
+  .presets{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-bottom:22px}
+  .presets button{font-size:16px;padding:6px 14px}
+  .presets button.sel{background:var(--yellow)}
+  .big{font-size:30px;padding:14px 38px;background:var(--yellow);box-shadow:0 7px 0 var(--pink-dk);width:100%}
+  .big:active{box-shadow:0 2px 0 var(--pink-dk)}
+
+  #topbar{position:fixed;z-index:5;top:14px;right:14px;display:none;gap:8px}
+  #topbar.on{display:flex}
+  #topbar button{font-size:17px;padding:8px 16px;background:#fff}
+
+  #boom{
+    position:fixed;z-index:4;left:50%;top:50%;transform:translate(-50%,-50%) scale(0) rotate(-8deg);
+    font-size:clamp(90px,20vw,190px);font-weight:700;color:var(--pink-dk);
+    -webkit-text-stroke:5px var(--ink);paint-order:stroke fill;
+    text-shadow:6px 8px 0 var(--yellow);pointer-events:none;opacity:0
+  }
+  #boom.on{animation:pop .5s cubic-bezier(.2,1.6,.4,1) forwards}
+  @keyframes pop{0%{opacity:1;transform:translate(-50%,-50%) scale(0) rotate(-8deg)}100%{opacity:1;transform:translate(-50%,-50%) scale(1) rotate(-8deg)}}
+
+  #done h1{font-size:44px}
+  @media (prefers-reduced-motion:reduce){#timer.hurry,#timer.panic{animation:none}}
+</style>
+</head>
+<body>
+<canvas id="cv"></canvas>
+
+<div id="timer">
+  <div class="bells"><div class="bell"></div><div class="bell"></div></div>
+  <div class="body">
+    <div class="screen" id="screen">00:30</div>
+    <div class="heartrow">&hearts; &hearts; &hearts;</div>
+  </div>
+  <div class="feet"><div class="foot"></div><div class="foot"></div></div>
+</div>
+
+<div id="boom">BOOM!</div>
+
+<div class="panel on" id="setup">
+  <h1>Bomb Timer</h1>
+  <p class="sub">How long until the bomb gets the clock?</p>
+  <div class="steppers">
+    <div class="step">
+      <button class="arrow" data-k="m" data-d="1" aria-label="more minutes">&#9650;</button>
+      <div class="val" id="mv">05</div>
+      <button class="arrow" data-k="m" data-d="-1" aria-label="fewer minutes">&#9660;</button>
+      <small>minutes</small>
+    </div>
+    <div class="colon">:</div>
+    <div class="step">
+      <button class="arrow" data-k="s" data-d="5" aria-label="more seconds">&#9650;</button>
+      <div class="val" id="sv">00</div>
+      <button class="arrow" data-k="s" data-d="-5" aria-label="fewer seconds">&#9660;</button>
+      <small>seconds</small>
+    </div>
+  </div>
+  <div class="presets" id="presets">
+    <button data-s="30">30 sec</button><button data-s="60">1 min</button><button data-s="180">3 min</button>
+    <button data-s="300" class="sel">5 min</button><button data-s="600">10 min</button><button data-s="900">15 min</button>
+  </div>
+  <button class="big" id="startBtn">Start!</button>
+</div>
+
+<div class="panel" id="done">
+  <h1>Time's up!</h1>
+  <p class="sub" id="doneMsg">The bomb got the clock.</p>
+  <button class="big" id="againBtn">Play again</button>
+</div>
+
+<div id="topbar">
+  <button id="muteBtn">&#128266; Sound</button>
+  <button id="stopBtn">Stop</button>
+</div>
+
+<script>
+(() => {
+const cv = document.getElementById('cv'), ctx = cv.getContext('2d');
+const $ = id => document.getElementById(id);
+const timerEl = $('timer'), screenEl = $('screen'), setupEl = $('setup'), doneEl = $('done'),
+      topbar = $('topbar'), boomEl = $('boom');
+const reduce = !!(window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches);
+const PULSE = reduce ? .35 : 1;
+let W, H;
+
+/* route + schedule state — declared before resize() runs so it can rebuild safely */
+let route = null, path = [], cum = [], pathLen = 0, routeIdx = 1;
+let sched = [], curType = 'fast', curP = 0;
+
+function resize(){ const d = Math.min(devicePixelRatio||1, 2); W = innerWidth; H = innerHeight;
+  cv.width = W*d; cv.height = H*d; ctx.setTransform(d,0,0,d,0,0);
+  if (route) rebuildPath(); }             // keep the route valid across resize
+addEventListener('resize', resize); resize();
+
+/* ---------- setup controls ---------- */
+let mins = 5, secs = 0;
+const pad = n => String(n).padStart(2,'0');
+function showVals(){ $('mv').textContent = pad(mins); $('sv').textContent = pad(secs);
+  document.querySelectorAll('#presets button').forEach(b => b.classList.toggle('sel', +b.dataset.s === mins*60+secs)); }
+document.querySelectorAll('.arrow').forEach(b => b.onclick = () => {
+  const d = +b.dataset.d;
+  if (b.dataset.k === 'm') mins = Math.min(99, Math.max(0, mins + d));
+  else { secs += d; if (secs >= 60) secs = 0; if (secs < 0) secs = 55; }
+  if (mins === 0 && secs < 5) secs = 5;
+  showVals();
+});
+$('presets').onclick = e => { if (!e.target.dataset.s) return; const t = +e.target.dataset.s; mins = Math.floor(t/60); secs = t%60; showVals(); };
+showVals();
+
+/* ---------- sound ---------- */
+let ac, muted = false;
+const audio = () => (ac = ac || new (window.AudioContext||window.webkitAudioContext)());
+function tick(freq){ if (muted) return; const a = audio(), o = a.createOscillator(), g = a.createGain();
+  o.type = 'square'; o.frequency.value = freq; g.gain.value = .08; o.connect(g).connect(a.destination);
+  o.start(); g.gain.exponentialRampToValueAtTime(.001, a.currentTime + .09); o.stop(a.currentTime + .1); }
+function boomSound(){ if (muted) return; const a = audio(), n = a.sampleRate*1.2, buf = a.createBuffer(1, n, a.sampleRate), ch = buf.getChannelData(0);
+  for (let i=0;i<n;i++) ch[i] = (Math.random()*2-1) * Math.pow(1 - i/n, 2.2);
+  const s = a.createBufferSource(), f = a.createBiquadFilter(), g = a.createGain();
+  s.buffer = buf; f.type = 'lowpass'; f.frequency.setValueAtTime(1600, a.currentTime); f.frequency.exponentialRampToValueAtTime(120, a.currentTime+1);
+  g.gain.value = .6; s.connect(f).connect(g).connect(a.destination); s.start(); }
+$('muteBtn').onclick = () => { muted = !muted; $('muteBtn').textContent = muted ? '🔇 Muted' : '🔊 Sound'; };
+
+/* ---------- game state ---------- */
+let mode = 'setup', total = 0, startAt = 0, remaining = 0, lastSec = -1;
+let scaredT = 2.2, anxiousT = 6;
+const bomb = { x:0, y:0, dir:1, phase:0, orbit:0, blink:0, face:'smile', speed:0, sNorm:0 };
+let particles = [], boomT = 0, shake = 0, last = performance.now();
+const R = 34;                 // bomb body radius
+let cx = 0, cy = 0, tr = 0;   // clock centre + radius
+function clockRect(){ const r = timerEl.getBoundingClientRect(); cx = r.left + r.width/2; cy = r.top + r.height/2; tr = Math.max(r.width, r.height)/2; }
+const dist = (a,b,c,d) => Math.hypot(a-c, b-d);
+
+/* ---------- the predefined route (erased as the bomb passes) ---------- */
+/* A route is a clean geometric shape — a circle, triangle, rectangle or a
+   serpentine maze — chosen at random each run. It is regenerated from the
+   live W/H (so it re-fits on resize and a "circle" stays truly round), and
+   its LAST point is always the clock centre, so the bomb traces the shape,
+   then heads to the middle and explodes exactly at 00:00. */
+const ROUTE_TYPES = ['circle','triangle','rectangle','maze','bunny','frog','horse','unicorn'];
+/* silhouette outlines (SVG path data, y-down, ~100 box) the bomb traces */
+const ANIMAL_PATHS = {
+  bunny: "M50,97 C28,97 15,86 17,70 C9,63 8,44 12,28 C15,17 24,15 28,24 C31,32 31,46 33,55 C37,50 44,48 50,48 C56,48 63,50 67,55 C69,46 69,32 72,24 C76,15 85,17 88,28 C92,44 91,63 83,70 C85,86 72,97 50,97 Z",
+  frog: "M50,84 C24,84 12,73 12,60 C5,60 4,48 12,47 C6,36 16,26 26,32 C31,19 45,22 43,38 C46,36 48,43 50,43 C52,43 54,36 57,38 C55,22 69,19 74,32 C84,26 94,36 88,47 C96,48 95,60 88,60 C88,73 76,84 50,84 Z",
+  horse: "M16,50 C16,40 28,32 42,34 C50,35 56,36 60,38 C60,31 63,24 69,20 C73,17 79,13 83,15 C85,16 83,20 81,23 C86,25 88,31 84,35 C82,38 78,38 73,39 C70,44 68,48 66,54 L66,91 L60,91 L60,56 L52,56 L52,91 L46,91 L46,56 L34,57 L34,91 L28,91 L28,57 L22,57 L22,91 L16,91 L16,55 C9,54 6,66 8,73 C9,75 13,73 14,66 C15,59 15,55 16,50 Z",
+  unicorn: "M16,50 C16,40 28,32 42,34 C50,35 56,36 60,38 C59,31 60,25 64,21 C60,18 63,13 67,16 C66,9 71,4 73,10 C74,14 73,18 72,22 C78,20 82,26 80,31 C84,33 84,39 79,40 C76,45 72,48 68,54 L68,91 L62,91 L62,56 L54,56 L54,91 L48,91 L48,56 L36,57 L36,91 L30,91 L30,57 L24,57 L24,91 L18,91 L18,55 C10,54 7,66 9,73 C10,75 14,73 15,66 C16,59 16,55 16,50 Z"
+};
+function buildRoute(){
+  route = { type: ROUTE_TYPES[(Math.random()*ROUTE_TYPES.length)|0], rot: Math.random()*Math.PI*2 };
+  rebuildPath();
+}
+/* measure each silhouette once, normalised to a centred unit box + its perimeter */
+const _svgNS = 'http://www.w3.org/2000/svg';
+const _meas = document.createElementNS(_svgNS, 'svg');
+_meas.setAttribute('width','0'); _meas.setAttribute('height','0');
+_meas.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden';
+const _mp = document.createElementNS(_svgNS, 'path'); _meas.appendChild(_mp); document.body.appendChild(_meas);
+function outlineNorm(d, n){
+  _mp.setAttribute('d', d); const L = _mp.getTotalLength() || 1, raw = [];
+  for (let i=0;i<n;i++){ const p = _mp.getPointAtLength(L*i/n); raw.push({ x:p.x, y:p.y }); }
+  let mnx=1e9, mny=1e9, mxx=-1e9, mxy=-1e9;
+  raw.forEach(q => { if(q.x<mnx)mnx=q.x; if(q.y<mny)mny=q.y; if(q.x>mxx)mxx=q.x; if(q.y>mxy)mxy=q.y; });
+  const ox=(mnx+mxx)/2, oy=(mny+mxy)/2, h=Math.max(mxx-mnx, mxy-mny)/2 || 1;
+  const pts = raw.map(q => ({ x:(q.x-ox)/h, y:(q.y-oy)/h }));
+  let per=0; for (let i=1;i<pts.length;i++) per += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
+  return { pts, per };
+}
+const OUTLINES = {};
+for (const k in ANIMAL_PATHS) OUTLINES[k] = outlineNorm(ANIMAL_PATHS[k], 240);
+/* trace the silhouette `laps` times around the clock (repeats keep the pace up
+   for long timers while the shape stays full-size and recognisable) */
+function animalRoute(name, cx, cy, R, laps){
+  const pts = OUTLINES[name].pts, out = [];
+  for (let l=0;l<laps;l++) for (let i=0;i<pts.length;i++) out.push({ x:cx+pts[i].x*R, y:cy+pts[i].y*R });
+  return out;
+}
+function lineSample(a, b, step, out){          // straight segment a->b, excluding a
+  const d = Math.hypot(b.x-a.x, b.y-a.y), n = Math.max(1, Math.round(d/step));
+  for (let i=1;i<=n;i++){ const f = i/n; out.push({ x:a.x+(b.x-a.x)*f, y:a.y+(b.y-a.y)*f }); }
+}
+function polyPath(anchors, step){              // dense points through crisp corners
+  const out = [anchors[0]];
+  for (let i=1;i<anchors.length;i++) lineSample(anchors[i-1], anchors[i], step, out);
+  return out;
+}
+/* Route length scales with the timer so the bomb keeps a lively pace instead
+   of crawling: a longer timer earns a richer, longer route (more spiral rings,
+   nested laps, denser maze rows), a short timer gets a simple shape it dashes
+   around. We aim for ~TARGET_SPEED average and let the shape's detail absorb
+   the duration, capped so very long timers stay drawable. */
+const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
+const TARGET_SPEED = 175;      // px/s the bomb should average
+const MAX_LEN = 26000;         // longest route we'll draw
+
+function triVerts(rot, R, cx, cy){
+  const v = []; for (let k=0;k<3;k++){ const a = rot - Math.PI/2 + k*2*Math.PI/3; v.push({ x:cx+Math.cos(a)*R, y:cy+Math.sin(a)*R }); } return v;
+}
+function circlePath(rot, R0, cx, cy, rings, rMin){
+  const out = [], N = Math.max(70, rings*70);
+  if (rings <= 1){                              // one clean loop around the clock
+    const turns = 1.1;
+    for (let i=0;i<=N;i++){ const ang = rot + (i/N)*turns*2*Math.PI;
+      out.push({ x:cx+Math.cos(ang)*R0, y:cy+Math.sin(ang)*R0 }); }
+    return out;
+  }
+  for (let i=0;i<=N;i++){ const f = i/N, ang = rot + f*rings*2*Math.PI, r = R0 + (rMin-R0)*f;   // spiral inward, stopping at the clock's edge
+    out.push({ x:cx+Math.cos(ang)*r, y:cy+Math.sin(ang)*r }); }
+  return out;
+}
+function rectSpiral(l, r, t, b, cx, cy, laps){
+  if (laps <= 1) return polyPath([{x:l,y:t},{x:r,y:t},{x:r,y:b},{x:l,y:b},{x:l,y:t}], 10);
+  const gx = (cx-l)/(laps+0.6), gy = (cy-t)/(laps+0.6);   // inward step per lap
+  let L=l, R=r, T=t, B=b; const a = [{x:L,y:T}];
+  for (let k=0;k<laps;k++){
+    a.push({x:R,y:T}, {x:R,y:B}, {x:L,y:B});    // → ↓ ←
+    const nT = T + gy; a.push({x:L,y:nT});       // ↑ (stop inset)
+    L+=gx; R-=gx; B-=gy; T=nT; a.push({x:L,y:T});// small step in to the new corner
+  }
+  return polyPath(a, 10);
+}
+function triSpiral(rot, R0, cx, cy, laps){
+  if (laps <= 1){ const v = triVerts(rot, R0, cx, cy); return polyPath([v[0],v[1],v[2],v[0]], 10); }
+  const a = [];
+  for (let k=0;k<laps;k++){ const f = k/laps, R = R0*(1-f*.82), rr = rot + f*0.4, v = triVerts(rr, R, cx, cy);
+    if (k===0) a.push(v[0]); a.push(v[1], v[2], v[0]); }
+  return polyPath(a, 10);
+}
+function mazePath(l, r, t, b, cx, cy, rows){
+  const a = [];
+  for (let i=0;i<rows;i++){ const y = t + (b-t)*i/(rows-1);
+    if (i%2===0){ a.push({x:l,y}, {x:r,y}); } else { a.push({x:r,y}, {x:l,y}); } }
+  return polyPath(a, 10);
+}
+/* Push any point that lands on the clock out to its edge, so the drawn route
+   wraps AROUND the timer and never covers it — it stays on the periphery. */
+function avoidClock(pts, Rex){
+  for (let i=0;i<pts.length;i++){ const dx = pts[i].x-cx, dy = pts[i].y-cy, d = Math.hypot(dx,dy);
+    if (d > .001 && d < Rex){ const s = Rex/d; pts[i] = { x:cx+dx*s, y:cy+dy*s }; } }
+}
+function shapePath(rt, Rex){
+  const cx0 = cx, cy0 = cy, R0 = Math.min(W,H)*.42, T = Math.max(1, total);   // shapes are centred on the clock
+  if (OUTLINES[rt.type]){                        // animal silhouettes
+    const R = Math.min(W,H)*.46, perimPx = OUTLINES[rt.type].per * R;
+    const laps = clamp(Math.round(clamp(T*TARGET_SPEED, perimPx, MAX_LEN)/perimPx), 1, 22);
+    return animalRoute(rt.type, cx0, cy0, R, laps);
+  }
+  if (rt.type === 'circle'){
+    const single = 2*Math.PI*R0*1.1, Lt = clamp(T*TARGET_SPEED, single, MAX_LEN);
+    const rings = clamp(Math.round(Lt/(2*Math.PI*R0*.55)), 1, 16);
+    return circlePath(rt.rot, R0, cx0, cy0, rings, Rex);
+  }
+  if (rt.type === 'rectangle'){
+    const l = W*.12, r = W*.88, t = H*.15, b = H*.85, perim = 2*((r-l)+(b-t));
+    const laps = clamp(Math.round(clamp(T*TARGET_SPEED, perim, MAX_LEN)/perim), 1, 9);
+    return rectSpiral(l, r, t, b, cx0, cy0, laps);
+  }
+  if (rt.type === 'triangle'){
+    const Rc = R0*1.05, perim = 3*Rc*Math.sqrt(3);
+    const laps = clamp(Math.round(clamp(T*TARGET_SPEED, perim, MAX_LEN)/perim), 1, 9);
+    return triSpiral(rt.rot, Rc, cx0, cy0, laps);
+  }
+  // maze: serpentine whose row count grows with the timer
+  const l = W*.1, r = W*.9, t = H*.16, b = H*.84, rowLen = (r-l);
+  const rows = clamp(Math.round(clamp(T*TARGET_SPEED, rowLen*3, MAX_LEN)/rowLen), 3, 22);
+  return mazePath(l, r, t, b, cx0, cy0, rows);
+}
+function rebuildPath(){
+  if (!route) return;
+  clockRect();                                   // fresh clock centre + size
+  const Rex = tr + 22;                            // keep the route this far off the clock
+  const pts = shapePath(route, Rex);
+  avoidClock(pts, Rex);                           // bend anything crossing the clock around it
+  const lp = pts[pts.length-1];                   // final dive: straight in, stopping at the clock's edge
+  const dx = lp.x-cx, dy = lp.y-cy, d = Math.hypot(dx,dy) || 1;
+  pts.push({ x:cx + dx/d*Rex, y:cy + dy/d*Rex });
+  path = pts;
+  cum = [0]; pathLen = 0;
+  for (let i=1;i<path.length;i++){ pathLen += Math.hypot(path[i].x-path[i-1].x, path[i].y-path[i-1].y); cum.push(pathLen); }
+}
+function posAt(p){                    // position + tangent at progress p (0..1)
+  const a = Math.max(0, Math.min(1, p)) * pathLen;
+  let lo = 1, hi = cum.length - 1;
+  while (lo < hi){ const mid = (lo+hi)>>1; if (cum[mid] < a) lo = mid+1; else hi = mid; }
+  const i = Math.max(1, lo); routeIdx = i;
+  const seg = (cum[i]-cum[i-1]) || 1, f = (a-cum[i-1])/seg;
+  return {
+    x: path[i-1].x + (path[i].x-path[i-1].x)*f,
+    y: path[i-1].y + (path[i].y-path[i-1].y)*f,
+    tx: path[i].x - path[i-1].x,
+    ty: path[i].y - path[i-1].y
+  };
+}
+
+/* ---------- the speed / emotion schedule ---------- */
+/* A monotonic time->progress mapping. Both endpoints are pinned (0,0)-(1,1)
+   so the bomb ALWAYS reaches the clock exactly at 00:00, yet in between it
+   speeds up, dawdles and pauses. Each segment carries an emotion type. */
+function buildSchedule(){
+  const tW = [], dW = [], tp = [];
+  const count = clamp(Math.round(total/8), 2, 12);   // more emotion beats for longer runs
+  const allowPause = total > 12;                     // a short dash shouldn't stall to a stop
+  for (let i=0;i<count;i++){
+    const r = Math.random();
+    const type = r < .55 ? 'fast' : (allowPause && r > .82) ? 'pause' : 'slow';
+    if (type === 'fast'){ tW.push(.8 + Math.random()*.8); dW.push(1.6 + Math.random()*1.2); }
+    else if (type === 'slow'){ tW.push(.7 + Math.random()*.7); dW.push(.5 + Math.random()*.4); }
+    else { tW.push(.5 + Math.random()*.6); dW.push(.03 + Math.random()*.05); }   // pause ~ still
+    tp.push(type);
+  }
+  tW.push(1.1); dW.push(1.8); tp.push('fast');                 // decisive final charge
+  const tSum = tW.reduce((a,b)=>a+b,0), dSum = dW.reduce((a,b)=>a+b,0);
+  sched = []; let u = 0, p = 0;
+  for (let i=0;i<tW.length;i++){ const u1 = u + tW[i]/tSum, p1 = p + dW[i]/dSum;
+    sched.push({ u0:u, u1:u1, p0:p, p1:p1, type:tp[i] }); u = u1; p = p1; }
+  const L = sched[sched.length-1]; L.u1 = 1; L.p1 = 1;
+}
+function progressAt(u){
+  u = Math.max(0, Math.min(1, u));
+  for (let i=0;i<sched.length;i++){ const s = sched[i];
+    if (u <= s.u1 || i === sched.length-1){ curType = s.type;
+      const f = Math.max(0, Math.min(1, (u-s.u0)/((s.u1-s.u0)||1)));
+      return s.p0 + (s.p1-s.p0)*f; } }
+  return 1;
+}
+function faceFor(rem, type, s){
+  if (rem <= scaredT)  return 'scared';
+  if (rem <= anxiousT) return 'anxious';
+  if (type === 'pause' || s < .06) return 'doubt';
+  if (type === 'slow'  || s < .4)  return 'happy';
+  return 'hurry';
+}
+
+/* ---------- start / stop ---------- */
+function start(){
+  total = mins*60 + secs; if (total < 5) total = 5;
+  scaredT = Math.min(2.2, total*.14); anxiousT = Math.max(scaredT + .5, Math.min(6, total*.33));
+  setupEl.classList.remove('on'); doneEl.classList.remove('on'); boomEl.classList.remove('on');
+  timerEl.className = 'on'; topbar.classList.add('on');
+  screenEl.textContent = fmt(total);
+  requestAnimationFrame(() => {
+    clockRect();
+    buildRoute(); buildSchedule();
+    const p0 = posAt(0);
+    bomb.x = p0.x; bomb.y = p0.y; bomb.dir = 1; bomb.face = 'happy';
+    bomb.speed = 0; bomb.sNorm = 0; bomb.phase = 0; bomb.orbit = 0; bomb.blink = 0;
+    particles = []; curP = 0;
+    startAt = performance.now(); lastSec = -1; mode = 'run';
+    audio();
+  });
+}
+function stop(){ mode = 'setup'; doneEl.classList.remove('on'); timerEl.className = ''; topbar.classList.remove('on'); setupEl.classList.add('on'); boomEl.classList.remove('on'); document.body.style.transform = ''; }
+$('startBtn').onclick = start; $('againBtn').onclick = stop; $('stopBtn').onclick = stop;
+
+function fmt(t){ t = Math.max(0, Math.ceil(t)); return pad(Math.floor(t/60)) + ':' + pad(t%60); }
+
+function explode(){
+  mode = 'boom'; boomT = 0; shake = reduce ? .35 : 1; bomb.face = 'dead';
+  timerEl.className = 'on dead'; screenEl.textContent = '00:00';
+  topbar.classList.remove('on');
+  clockRect(); bomb.x = cx; bomb.y = cy;      // land the bomb dead-centre on the clock
+  boomSound(); setTimeout(() => boomEl.classList.add('on'), 250);
+  const cols = ['#F48FB1','#FFE14A','#FF8A3D','#D95A8A','#FFF6F1'];
+  for (let i=0;i<70;i++){ const a = Math.random()*Math.PI*2, s = 200 + Math.random()*420;
+    particles.push({ x:cx, y:cy, vx:Math.cos(a)*s, vy:Math.sin(a)*s - 80, r:5+Math.random()*10, life:1+Math.random(),
+      kind: Math.random() < .3 ? 'heart' : Math.random() < .5 ? 'star' : 'dot', col: cols[i%cols.length], rot: Math.random()*6 }); }
+  setTimeout(() => { doneEl.classList.add('on'); }, 2300);
+}
+
+/* ---------- update ---------- */
+function update(dt){
+  if (mode === 'run'){
+    const elapsed = (performance.now() - startAt)/1000;
+    remaining = total - elapsed;
+    const sec = Math.ceil(remaining);
+    if (sec !== lastSec){ lastSec = sec; screenEl.textContent = fmt(remaining);
+      if (sec <= 10 && sec > 0) tick(sec <= 3 ? 1320 : 880);
+      timerEl.className = 'on' + (sec <= 3 ? ' panic' : sec <= 10 ? ' hurry' : ''); }
+
+    // advance along the predefined route by the emotion schedule.
+    // progressAt() clamps to 1, so even if the final frames are dropped
+    // (background tab), the bomb still snaps onto the clock centre here
+    // before it detonates — it never explodes stranded mid-path.
+    curP = progressAt(elapsed/total);
+    const px = bomb.x, py = bomb.y, pos = posAt(curP);
+    bomb.x = pos.x; bomb.y = pos.y;
+    const inst = Math.hypot(bomb.x-px, bomb.y-py) / Math.max(dt, 1e-3);
+    bomb.speed += (inst - bomb.speed) * Math.min(1, dt*8);      // smoothed px/s
+    bomb.sNorm = Math.max(0, Math.min(1, bomb.speed/380));
+    if (pos.tx > 4) bomb.dir = 1; else if (pos.tx < -4) bomb.dir = -1;   // facing, with hysteresis
+    bomb.phase += dt * (4 + bomb.sNorm*12);
+    bomb.orbit += dt * (1.1 + bomb.sNorm*4.5);
+    bomb.face = faceFor(remaining, curType, bomb.sNorm);
+
+    if (remaining <= 0){ explode(); return; }
+  }
+  if (mode === 'boom'){
+    boomT += dt; shake = Math.max(0, shake - dt*.8);
+    particles.forEach(p => { p.life -= dt; p.vy += 500*dt; p.x += p.vx*dt; p.y += p.vy*dt; p.rot += dt*3; p.vx *= .985; });
+    particles = particles.filter(p => p.life > 0);
+    document.body.style.transform = shake > 0 ? `translate(${(Math.random()-.5)*shake*22}px,${(Math.random()-.5)*shake*22}px)` : '';
+  }
+}
+
+/* ---------- drawing helpers ---------- */
+function star(x,y,ro,ri,n,rot=0){ ctx.beginPath(); for (let i=0;i<n*2;i++){ const r = i%2?ri:ro, a = rot + i*Math.PI/n; ctx.lineTo(x+Math.cos(a)*r, y+Math.sin(a)*r); } ctx.closePath(); }
+function heart(x,y,s){ ctx.beginPath(); ctx.moveTo(x, y+s*.9); ctx.bezierCurveTo(x-s*1.5, y-s*.2, x-s*.7, y-s*1.2, x, y-s*.4); ctx.bezierCurveTo(x+s*.7, y-s*1.2, x+s*1.5, y-s*.2, x, y+s*.9); ctx.closePath(); }
+const ink = () => { ctx.strokeStyle = '#2B2035'; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; };
+
+/* the road still ahead of the bomb — the passed part simply isn't drawn.
+   The dense `path` drives smooth movement; for DRAWING we decimate to a few
+   hundred points so re-dashing a long route stays cheap every frame. */
+function traceAhead(step){
+  ctx.beginPath(); ctx.moveTo(bomb.x, bomb.y);
+  for (let k=routeIdx;k<path.length;k+=step) ctx.lineTo(path[k].x, path[k].y);
+  const last = path[path.length-1]; ctx.lineTo(last.x, last.y);
+}
+function drawRoute(){
+  if (path.length < 2) return;
+  const step = Math.max(1, Math.round((path.length - routeIdx) / 280));
+  ctx.save(); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+  ctx.setLineDash([]); ctx.lineWidth = 12; ctx.strokeStyle = 'rgba(253,225,236,.75)';   // soft base track
+  traceAhead(step); ctx.stroke();
+  ctx.setLineDash([14,12]); ctx.lineDashOffset = -bomb.phase*6; ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(217,90,138,.55)';   // dashed rope
+  traceAhead(step); ctx.stroke();
+  ctx.restore();
+}
+
+/* Sparkling Magical Ring — glowing orbit + orbiting stars + twinkles.
+   front=false draws the glow, ring and the stars behind the bomb;
+   front=true draws the stars in front, giving the orbit real depth. */
+const AURA_N = 7;
+function drawAura(front){
+  const flare = bomb.face === 'scared' ? 1.55 : bomb.face === 'anxious' ? 1.28 : 1;
+  const puls  = 1 + Math.sin(bomb.phase*.9) * .09 * PULSE;
+  const ax = bomb.x, ay = bomb.y - R*.12;
+  const rx = (R+24)*puls, ry = (R+24)*.4*puls;
+  ctx.save(); ctx.globalCompositeOperation = 'lighter';
+  if (!front){
+    // radial glow
+    const gr = (R+40)*flare*puls;
+    const g = ctx.createRadialGradient(ax, ay, R*.15, ax, ay, gr);
+    g.addColorStop(0,   `rgba(255,231,150,${.55*flare})`);
+    g.addColorStop(.4,  `rgba(244,143,177,${.42*flare})`);
+    g.addColorStop(.75, `rgba(216,120,200,${.22*flare})`);
+    g.addColorStop(1,   'rgba(244,143,177,0)');
+    ctx.fillStyle = g; ctx.beginPath(); ctx.arc(ax, ay, gr, 0, Math.PI*2); ctx.fill();
+    // comet-glow streak when moving fast
+    if (bomb.sNorm > .5) for (let k=1;k<=3;k++){ const gx = ax - bomb.dir*(R + k*16), gy = ay + Math.sin(bomb.phase+k)*4;
+      ctx.fillStyle = `rgba(255,220,150,${.22/k})`; ctx.beginPath(); ctx.arc(gx, gy, (R*.55)/k, 0, Math.PI*2); ctx.fill(); }
+    // the ring itself
+    ctx.save(); ctx.translate(ax, ay); ctx.rotate(-.12);
+    ctx.strokeStyle = 'rgba(255,214,150,.85)'; ctx.lineWidth = 4;
+    ctx.shadowColor = 'rgba(255,170,220,.95)'; ctx.shadowBlur = 16;
+    ctx.beginPath(); ctx.ellipse(0, 0, rx, ry, 0, 0, Math.PI*2); ctx.stroke(); ctx.restore();
+  }
+  // orbiting stars, split back / front for depth
+  for (let k=0;k<AURA_N;k++){
+    const ang = bomb.orbit + k*(Math.PI*2/AURA_N);
+    const depth = Math.sin(ang);
+    if ((depth > 0) !== front) continue;
+    const sx = ax + Math.cos(ang)*rx, sy = ay + depth*ry;
+    const sc = .55 + (depth+1)*.32, tw = .75 + .25*Math.sin(bomb.phase*3 + k*1.3);
+    const size = (5.5 + sc*5)*flare*tw;
+    ctx.save(); ctx.translate(sx, sy); ctx.rotate(bomb.orbit*1.5 + k);
+    ctx.shadowColor = 'rgba(255,200,120,.95)'; ctx.shadowBlur = 12;
+    ctx.fillStyle = 'rgba(255,240,180,.98)'; star(0, 0, size, size*.44, 4, 0); ctx.fill();
+    ctx.fillStyle = '#fff'; star(0, 0, size*.5, size*.2, 4, 0); ctx.fill();
+    ctx.restore();
+  }
+  // scattered twinkles (behind only)
+  if (!front) for (let i=0;i<6;i++){ const a = -bomb.orbit*.6 + i*(Math.PI*2/6), rr = (R+18) + (i%2)*14;
+    const sx = ax + Math.cos(a)*rr*1.15, sy = ay + Math.sin(a)*rr*.5, tw = .4 + .6*Math.abs(Math.sin(bomb.phase*4 + i*1.7));
+    ctx.globalAlpha = tw; ctx.fillStyle = '#fff'; ctx.shadowColor = '#FFE14A'; ctx.shadowBlur = 8;
+    star(sx, sy, 2.5 + tw*3.5, 1, 4, Math.PI/4); ctx.fill(); ctx.globalAlpha = 1; }
+  ctx.restore();
+}
+
+/* ---------- the bomb ---------- */
+function drawFace(face, phase){
+  ctx.fillStyle = '#2B2035'; ctx.strokeStyle = '#2B2035'; ctx.lineWidth = 4; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+  const ex = 11, ey = -4;
+  if (face === 'dead'){
+    [-ex, ex].forEach(px => { ctx.beginPath(); ctx.moveTo(px-6, ey-6); ctx.lineTo(px+6, ey+6); ctx.moveTo(px+6, ey-6); ctx.lineTo(px-6, ey+6); ctx.stroke(); });
+    ctx.beginPath(); ctx.ellipse(0, 13, 6, 8, 0, 0, Math.PI*2); ctx.fill();
+  } else if (face === 'scared'){
+    [-ex, ex].forEach(px => { ctx.fillStyle = '#fff'; ctx.beginPath(); ctx.arc(px, ey, 8, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = '#2B2035'; ctx.beginPath(); ctx.arc(px, ey, 3.5, 0, Math.PI*2); ctx.fill(); });
+    ctx.fillStyle = '#2B2035'; ctx.beginPath(); ctx.ellipse(0, 14, 7, 9, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(-ex-6, ey-13); ctx.lineTo(-ex+6, ey-16); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex+6, ey-13); ctx.lineTo(ex-6, ey-16); ctx.stroke();
+  } else if (face === 'anxious'){
+    [-ex, ex].forEach(px => { ctx.fillStyle = '#2B2035'; ctx.beginPath(); ctx.ellipse(px, ey, 5, 7, 0, 0, Math.PI*2); ctx.fill(); });
+    // worried brows, up-and-outward
+    ctx.beginPath(); ctx.moveTo(-ex-6, ey-11); ctx.lineTo(-ex+5, ey-8); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex+6, ey-11); ctx.lineTo(ex-5, ey-8); ctx.stroke();
+    // small nervous open mouth
+    ctx.beginPath(); ctx.ellipse(0, 17, 5, 4, 0, 0, Math.PI*2); ctx.stroke();
+    // wobbling sweat drop
+    ctx.save(); ctx.fillStyle = '#BFE6F7'; ctx.strokeStyle = '#7FB8D6'; ctx.lineWidth = 2;
+    const dx = ex + 13, dy = ey - 5 + Math.sin(phase*3)*1.5;
+    ctx.beginPath(); ctx.moveTo(dx, dy-6); ctx.quadraticCurveTo(dx+5, dy+2, dx, dy+6); ctx.quadraticCurveTo(dx-5, dy+2, dx, dy-6); ctx.closePath(); ctx.fill(); ctx.stroke(); ctx.restore();
+  } else if (face === 'hurry'){
+    [-ex, ex].forEach(px => { ctx.fillStyle = '#2B2035'; ctx.beginPath(); ctx.ellipse(px, ey+1, 4, 6, 0, 0, Math.PI*2); ctx.fill(); });
+    // determined brows, down-and-inward
+    ctx.beginPath(); ctx.moveTo(-ex-6, ey-12); ctx.lineTo(-ex+6, ey-7); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(ex+6, ey-12); ctx.lineTo(ex-6, ey-7); ctx.stroke();
+    // open, effortful mouth
+    ctx.fillStyle = '#2B2035'; ctx.beginPath(); ctx.ellipse(0, 15, 6, 7, 0, 0, Math.PI*2); ctx.fill();
+    ctx.fillStyle = '#FF8A3D'; ctx.beginPath(); ctx.ellipse(0, 19, 4, 3, 0, 0, Math.PI); ctx.fill();
+  } else if (face === 'doubt'){
+    // one open eye, one squint — confused/asymmetric
+    ctx.fillStyle = '#2B2035'; ctx.beginPath(); ctx.ellipse(-ex, ey, 4.5, 7, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(ex-6, ey); ctx.lineTo(ex+6, ey); ctx.stroke();
+    // quizzically raised brow
+    ctx.beginPath(); ctx.arc(-ex, ey-13, 6, Math.PI*1.1, Math.PI*1.9); ctx.stroke();
+    // wavy unsure mouth
+    ctx.beginPath(); ctx.moveTo(-9, 16); ctx.quadraticCurveTo(-4, 12, 0, 16); ctx.quadraticCurveTo(4, 20, 9, 16); ctx.stroke();
+  } else if (face === 'happy'){
+    // smiling ^_^ eyes
+    [-ex, ex].forEach(px => { ctx.beginPath(); ctx.arc(px, ey-1, 6, Math.PI*.15, Math.PI*.85); ctx.stroke(); });
+    // big grin + tongue
+    ctx.fillStyle = '#2B2035'; ctx.beginPath(); ctx.arc(0, 4, 14, Math.PI*.12, Math.PI*.88); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = '#FF8A3D'; ctx.beginPath(); ctx.arc(0, 15, 6, Math.PI*.05, Math.PI*.95); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = 'rgba(217,90,138,.5)'; [-22, 22].forEach(px => { ctx.beginPath(); ctx.ellipse(px, 7, 6, 3.5, 0, 0, Math.PI*2); ctx.fill(); });
+  } else {
+    // default smile / wink
+    if (face === 'wink'){ ctx.beginPath(); ctx.arc(-ex, ey, 6, Math.PI*1.15, Math.PI*1.85); ctx.stroke(); }
+    else { ctx.beginPath(); ctx.ellipse(-ex, ey, 4.5, 7, 0, 0, Math.PI*2); ctx.fill(); }
+    ctx.beginPath(); ctx.ellipse(ex, ey, 4.5, 7, 0, 0, Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.arc(0, 6, 13, Math.PI*.15, Math.PI*.85); ctx.stroke();
+    ctx.fillStyle = 'rgba(217,90,138,.45)'; [-22, 22].forEach(px => { ctx.beginPath(); ctx.ellipse(px, 7, 6, 3.5, 0, 0, Math.PI*2); ctx.fill(); });
+  }
+}
+
+function drawBomb(){
+  const { x, y, dir, phase, face } = bomb;
+  const move = Math.min(1, bomb.sNorm*2.2);        // legs/bob fade out when paused, full stride when moving
+  ctx.save();
+  // shadow
+  ctx.fillStyle = 'rgba(43,32,53,.15)'; ctx.beginPath(); ctx.ellipse(x, y+R+22, R*1.1, 9, 0, 0, Math.PI*2); ctx.fill();
+  ctx.translate(x, y); ctx.scale(dir, 1);
+  const bob = mode === 'run' ? Math.abs(Math.sin(phase))*5*move : 0; ctx.translate(0, -bob);
+  ink(); ctx.lineWidth = 4;
+  // legs
+  const sw = mode === 'run' ? Math.sin(phase)*16*move : 0;
+  [sw, -sw].forEach((s, i) => { const lx = (i? 10 : -10) + s, ly = R + 10 - Math.abs(s)*.25;
+    ctx.fillStyle = '#D95A8A'; ctx.beginPath(); ctx.moveTo(i?8:-8, R-6); ctx.lineTo(lx, ly); ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(lx + 6, ly + 3, 15, 8, s*.02, 0, Math.PI*2); ctx.fill(); ctx.stroke(); });
+  // cap
+  ctx.fillStyle = '#D95A8A'; ctx.save(); ctx.translate(R*.55, -R*.62); ctx.rotate(-.7);
+  ctx.beginPath(); ctx.roundRect(-9, -13, 18, 20, 5); ctx.fill(); ctx.stroke(); ctx.restore();
+  // fuse
+  const cap = [R*.62, -R*.9], spark = [R*.95, -R*1.55];
+  ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(cap[0], cap[1]); ctx.quadraticCurveTo(R*1.15, -R*1.05, spark[0], spark[1]); ctx.stroke();
+  // spark
+  const fl = 1 + Math.sin(phase*2.3)*.18 + (face === 'scared' ? .5 : face === 'anxious' ? .3 : 0);
+  ctx.fillStyle = '#FFE14A'; star(spark[0], spark[1], 15*fl, 7*fl, 7, phase*.4); ctx.fill(); ctx.lineWidth = 3; ctx.stroke();
+  ctx.fillStyle = '#FF8A3D'; star(spark[0], spark[1], 7*fl, 3*fl, 6, -phase*.6); ctx.fill();
+  // body
+  ctx.lineWidth = 4.5; ctx.fillStyle = '#F48FB1'; ctx.beginPath(); ctx.arc(0, 0, R, 0, Math.PI*2); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = '#D95A8A'; ctx.beginPath(); ctx.arc(0, 0, R-2, Math.PI*.05, Math.PI*.6); ctx.arc(0, 0, R-9, Math.PI*.6, Math.PI*.05, true); ctx.fill();
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.ellipse(-R*.42, -R*.42, 8, 5, -.7, 0, Math.PI*2); ctx.fill();
+  // face (drawn un-flipped enough to read symmetric)
+  drawFace(face, phase);
+  ctx.restore();
+}
+
+function drawExplosion(){
+  const t = boomT;
+  if (t < 1.6){
+    ctx.save(); ctx.translate(cx, cy); ink();
+    const e = Math.min(1, t/.55), grow = 1 - Math.pow(1-e, 3), fade = t > 1.1 ? 1 - (t-1.1)/.5 : 1;
+    ctx.globalAlpha = Math.max(0, fade); ctx.lineWidth = 5;
+    const big = 90 + grow*Math.min(W,H)*.42, rot = t*.8;
+    ctx.fillStyle = '#FF8A3D'; star(0,0, big, big*.6, 12, rot); ctx.fill(); ctx.stroke();
+    ctx.fillStyle = '#FFE14A'; star(0,0, big*.72, big*.42, 10, -rot*1.3); ctx.fill();
+    ctx.fillStyle = '#FFF6F1'; ctx.beginPath();
+    for (let i=0;i<8;i++){ const a = i*Math.PI/4, r = big*.36; ctx.arc(Math.cos(a)*r, Math.sin(a)*r, big*.22, 0, Math.PI*2); } ctx.fill();
+    ctx.fillStyle = '#F48FB1';
+    for (let i=0;i<7;i++){ const a = i*Math.PI*2/7 + .4, r = big*1.05 + Math.sin(t*5+i)*8;
+      ctx.beginPath(); ctx.arc(Math.cos(a)*r, Math.sin(a)*r, 18 + (i%3)*8, 0, Math.PI*2); ctx.fill(); ctx.stroke(); }
+    ctx.restore();
+  }
+  particles.forEach(p => { ctx.save(); ctx.globalAlpha = Math.min(1, p.life); ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+    ctx.fillStyle = p.col; ink(); ctx.lineWidth = 2.5;
+    if (p.kind === 'heart') heart(0,0,p.r*.9); else if (p.kind === 'star') star(0,0,p.r*1.3,p.r*.6,5); else { ctx.beginPath(); ctx.arc(0,0,p.r*.6,0,Math.PI*2); }
+    ctx.fill(); ctx.stroke(); ctx.restore(); });
+}
+
+function frame(now){
+  const dt = Math.min(.05, (now - last)/1000); last = now;
+  update(dt);
+  ctx.clearRect(0,0,W,H);
+  if (mode === 'run'){ drawRoute(); drawAura(false); drawBomb(); drawAura(true); }
+  if (mode === 'boom'){ drawExplosion(); if (boomT < .25){ drawAura(false); drawBomb(); drawAura(true); } }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
