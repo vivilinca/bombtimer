@@ -148,7 +148,7 @@ const PULSE = reduce ? .35 : 1;
 let W, H;
 
 /* route + schedule state — declared before resize() runs so it can rebuild safely */
-let route = null, path = [], cum = [], pathLen = 0, routeIdx = 1;
+let route = null, path = [], cum = [], pathLen = 0, routeIdx = 1, legEnds = [];
 let sched = [], curType = 'fast', curP = 0;
 
 function resize(){ const d = Math.min(devicePixelRatio||1, 2); W = innerWidth; H = innerHeight;
@@ -190,16 +190,20 @@ let scaredT = 2.2, anxiousT = 6;
 const bomb = { x:0, y:0, dir:1, phase:0, orbit:0, blink:0, face:'smile', speed:0, sNorm:0 };
 let particles = [], boomT = 0, shake = 0, last = performance.now();
 const R = 34;                 // bomb body radius
-let cx = 0, cy = 0, tr = 0;   // clock centre + radius
-function clockRect(){ const r = timerEl.getBoundingClientRect(); cx = r.left + r.width/2; cy = r.top + r.height/2; tr = Math.max(r.width, r.height)/2; }
+const CLOCK_GAP = 36;         // the route stays this far off the clock, clear of the bomb's body
+let cx = 0, cy = 0, ax = 1, ay = 1;   // clock centre + half-size of the keep-out zone
+function clockRect(){ const r = timerEl.getBoundingClientRect(); cx = r.left + r.width/2; cy = r.top + r.height/2; ax = r.width/2 + CLOCK_GAP; ay = r.height/2 + CLOCK_GAP; }
+/* superellipse: a rounded box hugging the clock. <1 is inside the keep-out zone */
+const clockD = (dx,dy) => Math.pow(Math.pow(Math.abs(dx)/ax, 6) + Math.pow(Math.abs(dy)/ay, 6), 1/6);
 const dist = (a,b,c,d) => Math.hypot(a-c, b-d);
 
 /* ---------- the predefined route (erased as the bomb passes) ---------- */
-/* A route is a clean geometric shape — a circle, triangle, rectangle or a
-   serpentine maze — chosen at random each run. It is regenerated from the
-   live W/H (so it re-fits on resize and a "circle" stays truly round), and
-   its LAST point is always the clock centre, so the bomb traces the shape,
-   then heads to the middle and explodes exactly at 00:00. */
+/* A route is a chain of legs, each one lap of a shape — circle, triangle,
+   rectangle, maze or an animal silhouette. Longer timers simply chain more
+   legs, and a shape never follows itself, so the bomb is always on a fresh
+   line. Only the current leg is drawn. The route is regenerated from the live
+   W/H (so it re-fits on resize), and it ends with a dive to the clock, which
+   the bomb reaches exactly at 00:00. */
 const ROUTE_TYPES = ['circle','triangle','rectangle','maze','bunny','frog','horse','unicorn'];
 /* silhouette outlines (SVG path data, y-down, ~100 box) the bomb traces */
 const ANIMAL_PATHS = {
@@ -208,11 +212,7 @@ const ANIMAL_PATHS = {
   horse: "M16,50 C16,40 28,32 42,34 C50,35 56,36 60,38 C60,31 63,24 69,20 C73,17 79,13 83,15 C85,16 83,20 81,23 C86,25 88,31 84,35 C82,38 78,38 73,39 C70,44 68,48 66,54 L66,91 L60,91 L60,56 L52,56 L52,91 L46,91 L46,56 L34,57 L34,91 L28,91 L28,57 L22,57 L22,91 L16,91 L16,55 C9,54 6,66 8,73 C9,75 13,73 14,66 C15,59 15,55 16,50 Z",
   unicorn: "M16,50 C16,40 28,32 42,34 C50,35 56,36 60,38 C59,31 60,25 64,21 C60,18 63,13 67,16 C66,9 71,4 73,10 C74,14 73,18 72,22 C78,20 82,26 80,31 C84,33 84,39 79,40 C76,45 72,48 68,54 L68,91 L62,91 L62,56 L54,56 L54,91 L48,91 L48,56 L36,57 L36,91 L30,91 L30,57 L24,57 L24,91 L18,91 L18,55 C10,54 7,66 9,73 C10,75 14,73 15,66 C16,59 16,55 16,50 Z"
 };
-function buildRoute(){
-  route = { type: ROUTE_TYPES[(Math.random()*ROUTE_TYPES.length)|0], rot: Math.random()*Math.PI*2 };
-  rebuildPath();
-}
-/* measure each silhouette once, normalised to a centred unit box + its perimeter */
+/* measure each silhouette once, normalised to a centred unit box */
 const _svgNS = 'http://www.w3.org/2000/svg';
 const _meas = document.createElementNS(_svgNS, 'svg');
 _meas.setAttribute('width','0'); _meas.setAttribute('height','0');
@@ -224,118 +224,127 @@ function outlineNorm(d, n){
   let mnx=1e9, mny=1e9, mxx=-1e9, mxy=-1e9;
   raw.forEach(q => { if(q.x<mnx)mnx=q.x; if(q.y<mny)mny=q.y; if(q.x>mxx)mxx=q.x; if(q.y>mxy)mxy=q.y; });
   const ox=(mnx+mxx)/2, oy=(mny+mxy)/2, h=Math.max(mxx-mnx, mxy-mny)/2 || 1;
-  const pts = raw.map(q => ({ x:(q.x-ox)/h, y:(q.y-oy)/h }));
-  let per=0; for (let i=1;i<pts.length;i++) per += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y);
-  return { pts, per };
+  return raw.map(q => ({ x:(q.x-ox)/h, y:(q.y-oy)/h }));
 }
 const OUTLINES = {};
-for (const k in ANIMAL_PATHS) OUTLINES[k] = outlineNorm(ANIMAL_PATHS[k], 240);
-/* trace the silhouette `laps` times around the clock (repeats keep the pace up
-   for long timers while the shape stays full-size and recognisable) */
-function animalRoute(name, cx, cy, R, laps){
-  const pts = OUTLINES[name].pts, out = [];
-  for (let l=0;l<laps;l++) for (let i=0;i<pts.length;i++) out.push({ x:cx+pts[i].x*R, y:cy+pts[i].y*R });
-  return out;
-}
+for (const k in ANIMAL_PATHS) OUTLINES[k] = outlineNorm(ANIMAL_PATHS[k], 360);
 function lineSample(a, b, step, out){          // straight segment a->b, excluding a
   const d = Math.hypot(b.x-a.x, b.y-a.y), n = Math.max(1, Math.round(d/step));
   for (let i=1;i<=n;i++){ const f = i/n; out.push({ x:a.x+(b.x-a.x)*f, y:a.y+(b.y-a.y)*f }); }
 }
-function polyPath(anchors, step){              // dense points through crisp corners
+function polyPath(anchors, step){              // dense points through the anchors
   const out = [anchors[0]];
   for (let i=1;i<anchors.length;i++) lineSample(anchors[i-1], anchors[i], step, out);
   return out;
 }
-/* Route length scales with the timer so the bomb keeps a lively pace instead
-   of crawling: a longer timer earns a richer, longer route (more spiral rings,
-   nested laps, denser maze rows), a short timer gets a simple shape it dashes
-   around. We aim for ~TARGET_SPEED average and let the shape's detail absorb
-   the duration, capped so very long timers stay drawable. */
 const clamp = (v,a,b) => Math.max(a, Math.min(b, v));
 const TARGET_SPEED = 175;      // px/s the bomb should average
-const MAX_LEN = 26000;         // longest route we'll draw
+const STEP = 5;                // spacing of the final route points, px
+const CORNER = .03;            // corner softness, as a share of the short screen side
 
 function triVerts(rot, R, cx, cy){
   const v = []; for (let k=0;k<3;k++){ const a = rot - Math.PI/2 + k*2*Math.PI/3; v.push({ x:cx+Math.cos(a)*R, y:cy+Math.sin(a)*R }); } return v;
 }
-function circlePath(rot, R0, cx, cy, rings, rMin){
-  const out = [], N = Math.max(70, rings*70);
-  if (rings <= 1){                              // one clean loop around the clock
-    const turns = 1.1;
-    for (let i=0;i<=N;i++){ const ang = rot + (i/N)*turns*2*Math.PI;
-      out.push({ x:cx+Math.cos(ang)*R0, y:cy+Math.sin(ang)*R0 }); }
-    return out;
-  }
-  for (let i=0;i<=N;i++){ const f = i/N, ang = rot + f*rings*2*Math.PI, r = R0 + (rMin-R0)*f;   // spiral inward, stopping at the clock's edge
-    out.push({ x:cx+Math.cos(ang)*r, y:cy+Math.sin(ang)*r }); }
-  return out;
-}
-function rectSpiral(l, r, t, b, cx, cy, laps){
-  if (laps <= 1) return polyPath([{x:l,y:t},{x:r,y:t},{x:r,y:b},{x:l,y:b},{x:l,y:t}], 10);
-  const gx = (cx-l)/(laps+0.6), gy = (cy-t)/(laps+0.6);   // inward step per lap
-  let L=l, R=r, T=t, B=b; const a = [{x:L,y:T}];
-  for (let k=0;k<laps;k++){
-    a.push({x:R,y:T}, {x:R,y:B}, {x:L,y:B});    // → ↓ ←
-    const nT = T + gy; a.push({x:L,y:nT});       // ↑ (stop inset)
-    L+=gx; R-=gx; B-=gy; T=nT; a.push({x:L,y:T});// small step in to the new corner
-  }
-  return polyPath(a, 10);
-}
-function triSpiral(rot, R0, cx, cy, laps){
-  if (laps <= 1){ const v = triVerts(rot, R0, cx, cy); return polyPath([v[0],v[1],v[2],v[0]], 10); }
-  const a = [];
-  for (let k=0;k<laps;k++){ const f = k/laps, R = R0*(1-f*.82), rr = rot + f*0.4, v = triVerts(rr, R, cx, cy);
-    if (k===0) a.push(v[0]); a.push(v[1], v[2], v[0]); }
-  return polyPath(a, 10);
-}
-function mazePath(l, r, t, b, cx, cy, rows){
+function mazePath(l, r, t, b, rows){
   const a = [];
   for (let i=0;i<rows;i++){ const y = t + (b-t)*i/(rows-1);
     if (i%2===0){ a.push({x:l,y}, {x:r,y}); } else { a.push({x:r,y}, {x:l,y}); } }
   return polyPath(a, 10);
 }
+/* one lap of a leg's shape, centred on the clock; closed shapes end where they start */
+function legPoints(s){
+  const m = Math.min(W,H);
+  if (s.type === 'rectangle' || s.type === 'maze'){
+    const hw = W*.39*s.k, hh = H*.35*s.k, l = cx-hw, r = cx+hw, t = cy-hh, b = cy+hh;
+    if (s.type === 'rectangle') return polyPath([{x:l,y:t},{x:r,y:t},{x:r,y:b},{x:l,y:b},{x:l,y:t}], 10);
+    return mazePath(l, r, t, b, s.rows);        // even row count, so no row runs through the clock
+  }
+  let pts;
+  if (OUTLINES[s.type]){
+    const R = m*.46*s.k; pts = OUTLINES[s.type].map(q => ({ x:cx+(s.flip?-q.x:q.x)*R, y:cy+q.y*R }));
+    pts.push(pts[0]);
+  } else if (s.type === 'circle'){
+    const N = 180, R = m*.42*s.k; pts = [];
+    for (let i=0;i<=N;i++){ const a = s.rot + i/N*2*Math.PI; pts.push({ x:cx+Math.cos(a)*R, y:cy+Math.sin(a)*R }); }
+  } else { const v = triVerts(s.rot, m*.44*s.k, cx, cy); pts = polyPath([v[0],v[1],v[2],v[0]], 10); }
+  // when the clock fills the short side (phones), stretch along the long side so the shape has room
+  if ((H > W ? ax : ay) < m*.32) return pts;
+  const st = clamp(Math.max(W,H)*.42/(m*.46), 1, 1.6), sx = H > W ? 1 : st, sy = H > W ? st : 1;
+  return pts.map(q => ({ x:cx+(q.x-cx)*sx, y:cy+(q.y-cy)*sy }));
+}
+/* join a leg on from point p: closed shapes start at their nearest point, the maze at its nearest end */
+function orient(pts, s, p){
+  if (s.type === 'maze'){
+    if (p && dist(p.x,p.y,pts[pts.length-1].x,pts[pts.length-1].y) < dist(p.x,p.y,pts[0].x,pts[0].y)) pts.reverse();
+    return pts;
+  }
+  let best = 0, bd = 1e12;
+  if (p) pts.forEach((q,i) => { const d = dist(p.x,p.y,q.x,q.y); if (d < bd){ bd = d; best = i; } });
+  const out = pts.slice(best).concat(pts.slice(1, best+1));
+  return s.rev ? out.reverse() : out;
+}
+function resample(pts, step){                  // even spacing, so smoothing treats every shape alike
+  const out = [pts[0]]; let acc = 0;
+  for (let i=1;i<pts.length;i++){ const a = pts[i-1], b = pts[i], d = Math.hypot(b.x-a.x, b.y-a.y);
+    let pos = step - acc;
+    while (pos <= d){ const f = pos/d; out.push({ x:a.x+(b.x-a.x)*f, y:a.y+(b.y-a.y)*f }); pos += step; }
+    acc = d - (pos - step); }
+  out.push(pts[pts.length-1]);
+  return out;
+}
+function smooth(pts, w, passes){               // repeated moving average rounds every corner; both ends stay put
+  const n = pts.length, sx = new Float64Array(n+1), sy = new Float64Array(n+1);
+  for (let p=0;p<passes;p++){
+    for (let i=0;i<n;i++){ sx[i+1] = sx[i]+pts[i].x; sy[i+1] = sy[i]+pts[i].y; }
+    for (let i=1;i<n-1;i++){ const h = Math.min(w, i, n-1-i), c = 2*h+1;
+      pts[i] = { x:(sx[i+h+1]-sx[i-h])/c, y:(sy[i+h+1]-sy[i-h])/c }; }
+  }
+}
+const lineLen = pts => { let d = 0; for (let i=1;i<pts.length;i++) d += Math.hypot(pts[i].x-pts[i-1].x, pts[i].y-pts[i-1].y); return d; };
+/* Pick legs until the route is long enough for the bomb to average TARGET_SPEED.
+   Each shuffled bag holds every shape once, and the seam between bags is
+   checked, so the same shape never comes twice in a row. */
+function buildRoute(){
+  const target = Math.max(1, total)*TARGET_SPEED;
+  let len = 0, lastLen = 0, bag = [], prev = null;
+  route = { legs: [] };
+  do {
+    if (!bag.length){
+      bag = ROUTE_TYPES.slice();
+      for (let i=bag.length-1;i>0;i--){ const j = (Math.random()*(i+1))|0; [bag[i],bag[j]] = [bag[j],bag[i]]; }
+      if (bag[bag.length-1] === prev) [bag[0],bag[bag.length-1]] = [bag[bag.length-1],bag[0]];
+    }
+    const s = { type: prev = bag.pop(), rot: Math.random()*Math.PI*2, k: .85 + Math.random()*.15,
+                flip: Math.random() < .5, rev: Math.random() < .5, rows: Math.random() < .5 ? 4 : 6 };
+    route.legs.push(s);
+    lastLen = lineLen(legPoints(s)); len += lastLen;
+  } while (len + lastLen/2 < target);
+  rebuildPath();
+}
 /* Push any point that lands on the clock out to its edge, so the drawn route
    wraps AROUND the timer and never covers it — it stays on the periphery. */
-function avoidClock(pts, Rex){
-  for (let i=0;i<pts.length;i++){ const dx = pts[i].x-cx, dy = pts[i].y-cy, d = Math.hypot(dx,dy);
-    if (d > .001 && d < Rex){ const s = Rex/d; pts[i] = { x:cx+dx*s, y:cy+dy*s }; } }
-}
-function shapePath(rt, Rex){
-  const cx0 = cx, cy0 = cy, R0 = Math.min(W,H)*.42, T = Math.max(1, total);   // shapes are centred on the clock
-  if (OUTLINES[rt.type]){                        // animal silhouettes
-    const R = Math.min(W,H)*.46, perimPx = OUTLINES[rt.type].per * R;
-    const laps = clamp(Math.round(clamp(T*TARGET_SPEED, perimPx, MAX_LEN)/perimPx), 1, 22);
-    return animalRoute(rt.type, cx0, cy0, R, laps);
-  }
-  if (rt.type === 'circle'){
-    const single = 2*Math.PI*R0*1.1, Lt = clamp(T*TARGET_SPEED, single, MAX_LEN);
-    const rings = clamp(Math.round(Lt/(2*Math.PI*R0*.55)), 1, 16);
-    return circlePath(rt.rot, R0, cx0, cy0, rings, Rex);
-  }
-  if (rt.type === 'rectangle'){
-    const l = W*.12, r = W*.88, t = H*.15, b = H*.85, perim = 2*((r-l)+(b-t));
-    const laps = clamp(Math.round(clamp(T*TARGET_SPEED, perim, MAX_LEN)/perim), 1, 9);
-    return rectSpiral(l, r, t, b, cx0, cy0, laps);
-  }
-  if (rt.type === 'triangle'){
-    const Rc = R0*1.05, perim = 3*Rc*Math.sqrt(3);
-    const laps = clamp(Math.round(clamp(T*TARGET_SPEED, perim, MAX_LEN)/perim), 1, 9);
-    return triSpiral(rt.rot, Rc, cx0, cy0, laps);
-  }
-  // maze: serpentine whose row count grows with the timer
-  const l = W*.1, r = W*.9, t = H*.16, b = H*.84, rowLen = (r-l);
-  const rows = clamp(Math.round(clamp(T*TARGET_SPEED, rowLen*3, MAX_LEN)/rowLen), 3, 22);
-  return mazePath(l, r, t, b, cx0, cy0, rows);
+function avoidClock(pts){
+  for (let i=0;i<pts.length;i++){ const dx = pts[i].x-cx, dy = pts[i].y-cy, d = clockD(dx,dy);
+    if (d > .001 && d < 1) pts[i] = { x:cx+dx/d, y:cy+dy/d }; }
 }
 function rebuildPath(){
   if (!route) return;
   clockRect();                                   // fresh clock centre + size
-  const Rex = tr + 22;                            // keep the route this far off the clock
-  const pts = shapePath(route, Rex);
-  avoidClock(pts, Rex);                           // bend anything crossing the clock around it
+  const pts = []; legEnds = [];
+  route.legs.forEach(s => {
+    const p = pts[pts.length-1], raw = orient(legPoints(s), s, p);
+    if (p) raw.unshift(p);                        // short link from the end of the last leg
+    const seg = resample(raw, STEP);
+    avoidClock(seg);                              // bend anything crossing the clock around it
+    if (p) seg.shift();
+    for (const q of seg) pts.push(q);
+    legEnds.push(pts.length-1);
+  });
   const lp = pts[pts.length-1];                   // final dive: straight in, stopping at the clock's edge
-  const dx = lp.x-cx, dy = lp.y-cy, d = Math.hypot(dx,dy) || 1;
-  pts.push({ x:cx + dx/d*Rex, y:cy + dy/d*Rex });
+  const dx = lp.x-cx, dy = lp.y-cy, d = clockD(dx,dy) || 1;
+  lineSample(lp, { x:cx + dx/d, y:cy + dy/d }, STEP, pts);
+  legEnds[legEnds.length-1] = pts.length-1;
+  smooth(pts, Math.max(2, Math.round(Math.min(W,H)*CORNER/STEP)), 3);
   path = pts;
   cum = [0]; pathLen = 0;
   for (let i=1;i<path.length;i++){ pathLen += Math.hypot(path[i].x-path[i-1].x, path[i].y-path[i-1].y); cum.push(pathLen); }
@@ -360,7 +369,7 @@ function posAt(p){                    // position + tangent at progress p (0..1)
    speeds up, dawdles and pauses. Each segment carries an emotion type. */
 function buildSchedule(){
   const tW = [], dW = [], tp = [];
-  const count = clamp(Math.round(total/8), 2, 12);   // more emotion beats for longer runs
+  const count = Math.max(2, Math.round(total/8));    // a beat every ~8 s, so long runs never stall for long
   const allowPause = total > 12;                     // a short dash shouldn't stall to a stop
   for (let i=0;i<count;i++){
     const r = Math.random();
@@ -449,7 +458,8 @@ function update(dt){
     const inst = Math.hypot(bomb.x-px, bomb.y-py) / Math.max(dt, 1e-3);
     bomb.speed += (inst - bomb.speed) * Math.min(1, dt*8);      // smoothed px/s
     bomb.sNorm = Math.max(0, Math.min(1, bomb.speed/380));
-    if (pos.tx > 4) bomb.dir = 1; else if (pos.tx < -4) bomb.dir = -1;   // facing, with hysteresis
+    const heading = pos.tx / (Math.hypot(pos.tx, pos.ty) || 1);
+    if (heading > .4) bomb.dir = 1; else if (heading < -.4) bomb.dir = -1;   // facing, with hysteresis
     bomb.phase += dt * (4 + bomb.sNorm*12);
     bomb.orbit += dt * (1.1 + bomb.sNorm*4.5);
     bomb.face = faceFor(remaining, curType, bomb.sNorm);
@@ -469,22 +479,21 @@ function star(x,y,ro,ri,n,rot=0){ ctx.beginPath(); for (let i=0;i<n*2;i++){ cons
 function heart(x,y,s){ ctx.beginPath(); ctx.moveTo(x, y+s*.9); ctx.bezierCurveTo(x-s*1.5, y-s*.2, x-s*.7, y-s*1.2, x, y-s*.4); ctx.bezierCurveTo(x+s*.7, y-s*1.2, x+s*1.5, y-s*.2, x, y+s*.9); ctx.closePath(); }
 const ink = () => { ctx.strokeStyle = '#2B2035'; ctx.lineJoin = 'round'; ctx.lineCap = 'round'; };
 
-/* the road still ahead of the bomb — the passed part simply isn't drawn.
-   The dense `path` drives smooth movement; for DRAWING we decimate to a few
-   hundred points so re-dashing a long route stays cheap every frame. */
-function traceAhead(step){
+/* the rest of the current leg — the passed part simply isn't drawn, and later
+   legs stay hidden until the bomb gets there, so lines never pile up. */
+function traceAhead(){
+  const end = legEnds.find(e => e >= routeIdx) ?? path.length-1;
   ctx.beginPath(); ctx.moveTo(bomb.x, bomb.y);
-  for (let k=routeIdx;k<path.length;k+=step) ctx.lineTo(path[k].x, path[k].y);
-  const last = path[path.length-1]; ctx.lineTo(last.x, last.y);
+  for (let k=routeIdx;k<end;k+=2) ctx.lineTo(path[k].x, path[k].y);
+  ctx.lineTo(path[end].x, path[end].y);
 }
 function drawRoute(){
   if (path.length < 2) return;
-  const step = Math.max(1, Math.round((path.length - routeIdx) / 280));
   ctx.save(); ctx.lineJoin = 'round'; ctx.lineCap = 'round';
   ctx.setLineDash([]); ctx.lineWidth = 12; ctx.strokeStyle = 'rgba(253,225,236,.75)';   // soft base track
-  traceAhead(step); ctx.stroke();
+  traceAhead(); ctx.stroke();
   ctx.setLineDash([14,12]); ctx.lineDashOffset = -bomb.phase*6; ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(217,90,138,.55)';   // dashed rope
-  traceAhead(step); ctx.stroke();
+  traceAhead(); ctx.stroke();
   ctx.restore();
 }
 
