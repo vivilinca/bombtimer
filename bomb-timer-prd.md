@@ -56,7 +56,7 @@ The product exists to make time limits (homework, screen time, tidy-up, reading)
 **Route**
 - A route is a chain of legs, each one lap of a shape: circle, triangle, rectangle, maze, bunny, frog, horse or unicorn.
 - The bomb must always be on a fresh line. It never repeats a lap of the same shape back to back: all eight shapes are shuffled and used before any repeats, and the same shape never comes twice in a row.
-- Each leg gets its own size (85–100%), and shapes also vary by rotation (circle, triangle), mirroring (animals), direction or row count (maze, 4 or 6), so a repeated shape takes a different line.
+- Each leg gets its own size (85–100%), and shapes also vary by rotation (circle, triangle), mirroring (animals), row count (maze, 4 or 6) and lap direction, so a repeated shape takes a different line.
 - The number of legs scales with the timer, aiming for an average of 175 px/s at any duration. Very short timers run a single leg, so the bomb averages faster than the target.
 - Each leg joins on from where the last one ended: closed shapes start at their nearest point, the maze at its nearest end.
 - Legs are centred on the clock and sized from the viewport. Resizing mid-run rebuilds them to fit. When the clock fills the short side of the screen (phones), circle, triangle and animal legs stretch up to 1.6× along the long side so they stay recognisable.
@@ -137,6 +137,9 @@ Thresholds adapt to the timer's length:
 - Child can set a timer and start it without adult help on first use.
 - Bomb explodes only at 00:00 (0 early explosions in 20 runs across phone, tablet, laptop).
 - No visible direction flicker along the route.
+- On any timer length, the bomb never runs the same shape twice in a row and route lines never pile up into one.
+- Route lines look smooth on every shape, with no faceted corners.
+- Animal routes stay recognisable on phone, tablet and laptop.
 - Explosion is recognisable as "time's up" from across the room, with sound off.
 - Play again returns to a clean setup screen every time.
 
